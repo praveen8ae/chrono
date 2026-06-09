@@ -1,0 +1,21 @@
+node_modules/
+dist/
+.env
+.env.local
+
+# Replit internals — not needed outside Replit
+.replit
+.replitignore
+.npmrc
+.agents/
+replit.md
+.cache/
+.local/
+artifacts/
+
+# TypeScript
+*.tsbuildinfo
+
+# OS
+.DS_Store
+Thumbs.db
