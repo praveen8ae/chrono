@@ -1,4 +1,8 @@
 node_modules/
+frontend/.next/
+backend/.venv/
+backend/__pycache__/
+backend/*.sqlite3
 dist/
 .env
 .env.local
