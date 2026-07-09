@@ -137,6 +137,19 @@ export const db = {
       }));
     },
 
+    deleteByMonth: async (year: number, month: number): Promise<void> => {
+      const mm = String(month + 1).padStart(2, '0');
+      const lastDay = new Date(year, month + 1, 0).getDate();
+      const start = `${year}-${mm}-01`;
+      const end = `${year}-${mm}-${String(lastDay).padStart(2, '0')}`;
+      const { error } = await supabase
+        .from(T.assignments)
+        .delete()
+        .gte('date', start)
+        .lte('date', end);
+      if (error) throw error;
+    },
+
     upsert: async (assignment: Assignment): Promise<void> => {
       const { error } = await supabase.from(T.assignments).upsert({
         id: assignment.id,
@@ -318,6 +331,11 @@ export const db = {
         employee2Date: r.employee2_date,
         timestamp: new Date(r.timestamp),
       }));
+    },
+
+    delete: async (id: string): Promise<void> => {
+      const { error } = await supabase.from(T.shiftSwaps).delete().eq('id', id);
+      if (error) throw error;
     },
 
     insert: async (swap: DbShiftSwap): Promise<void> => {

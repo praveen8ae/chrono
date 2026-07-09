@@ -1,14 +1,19 @@
-import { useState } from 'react';
-import { Search, Plus, Pencil, Trash2, Mail, Phone, Users } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Plus, Pencil, Trash2, Mail, Phone, Users, Search } from 'lucide-react';
 import { useRosterStore } from '../store/rosterStore';
 import { EmployeeFormDialog } from '../components/employee/EmployeeFormDialog';
 import { DeleteConfirmDialog } from '../components/employee/DeleteConfirmDialog';
+import { EmployeeInfoDialog } from '../components/employee/EmployeeInfoDialog';
 import { Employee } from '../types/employee';
 
 export function EmployeesPage() {
-  const { employees } = useRosterStore();
+  const { employees, currentMonth, loadAssignments } = useRosterStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [formDialog, setFormDialog] = useState<{ isOpen: boolean; employee: Employee | null }>({
+    isOpen: false,
+    employee: null
+  });
+  const [infoDialog, setInfoDialog] = useState<{ isOpen: boolean; employee: Employee | null }>({
     isOpen: false,
     employee: null
   });
@@ -18,10 +23,18 @@ export function EmployeesPage() {
     employeeName: string;
   } | null>(null);
 
+  useEffect(() => {
+    loadAssignments(currentMonth.getFullYear(), currentMonth.getMonth());
+  }, [currentMonth, loadAssignments]);
+
   const filteredEmployees = employees.filter(emp =>
     emp.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     emp.id.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const handleOpenEmployeeInfo = (employee: Employee) => {
+    setInfoDialog({ isOpen: true, employee });
+  };
 
   const handleAddEmployee = () => {
     setFormDialog({ isOpen: true, employee: null });
@@ -39,19 +52,23 @@ export function EmployeesPage() {
     setFormDialog({ isOpen: false, employee: null });
   };
 
+  const closeInfoDialog = () => {
+    setInfoDialog({ isOpen: false, employee: null });
+  };
+
   const closeDeleteDialog = () => {
     setDeleteDialog(null);
   };
 
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="mb-2">Employee Directory</h1>
-        <p className="text-muted-foreground">Manage employee records, contact information, and shift assignments</p>
-      </div>
+      <div className="mb-8 grid grid-cols-1 gap-4 lg:grid-cols-[1fr_minmax(320px,420px)_auto] lg:items-center">
+        <div>
+          <h1 className="mb-2">Employee Directory</h1>
+          <p className="text-muted-foreground">Manage employee records, contact information, and shift assignments</p>
+        </div>
 
-      <div className="flex justify-between items-center mb-6">
-        <div className="relative flex-1 max-w-md">
+        <div className="relative w-full">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
             type="text"
@@ -61,13 +78,16 @@ export function EmployeesPage() {
             className="pl-10 pr-4 py-2 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring w-full"
           />
         </div>
-        <button
-          onClick={handleAddEmployee}
-          className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors ml-4"
-        >
-          <Plus className="w-4 h-4" />
-          Add Employee
-        </button>
+
+        <div className="flex justify-start lg:justify-end">
+          <button
+            onClick={handleAddEmployee}
+            className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Add Employee
+          </button>
+        </div>
       </div>
 
       <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-lg">
@@ -94,7 +114,19 @@ export function EmployeesPage() {
               </tr>
             ) : (
               filteredEmployees.map((employee) => (
-                <tr key={employee.id} className="border-b border-border hover:bg-muted/50 transition-colors">
+              <tr
+                key={employee.id}
+                className="border-b border-border hover:bg-muted/50 transition-colors cursor-pointer"
+                role="button"
+                tabIndex={0}
+                onClick={() => handleOpenEmployeeInfo(employee)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleOpenEmployeeInfo(employee);
+                  }
+                }}
+              >
                 <td className="p-4">
                   <span className="font-medium text-sm">{employee.id}</span>
                 </td>
@@ -130,13 +162,19 @@ export function EmployeesPage() {
                 <td className="p-4">
                   <div className="flex gap-2">
                     <button
-                      onClick={() => handleEditEmployee(employee)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleEditEmployee(employee);
+                      }}
                       className="p-2 hover:bg-secondary rounded-md transition-colors"
                     >
                       <Pencil className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={() => handleDeleteEmployee(employee.id, employee.name)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteEmployee(employee.id, employee.name);
+                      }}
                       className="p-2 hover:bg-destructive/10 text-destructive rounded-md transition-colors"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -166,6 +204,12 @@ export function EmployeesPage() {
         isOpen={formDialog.isOpen}
         onClose={closeFormDialog}
         employee={formDialog.employee}
+      />
+
+      <EmployeeInfoDialog
+        isOpen={infoDialog.isOpen}
+        onClose={closeInfoDialog}
+        employee={infoDialog.employee}
       />
 
       {deleteDialog && (

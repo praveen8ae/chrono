@@ -1,6 +1,5 @@
 import { useEffect } from 'react';
 import { Sidebar } from './components/layout/Sidebar';
-import { Topbar } from './components/layout/Topbar';
 import { DetailModal } from './components/roster/DetailModal';
 import { Toaster } from 'sonner';
 import { useRosterStore } from './store/rosterStore';
@@ -71,8 +70,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-background">
       <Sidebar />
-      <Topbar />
-      <main className="pt-28 px-10 pb-10">
+      <main className="pt-10 px-10 pb-10">
         {renderPage()}
       </main>
       <DetailModal />

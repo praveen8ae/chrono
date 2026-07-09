@@ -48,6 +48,7 @@ export type ShiftSwap = {
 type RosterStore = {
   currentMonth: Date;
   assignments: Assignment[];
+  employeeSearchQuery: string;
   messages: Record<string, Message[]>;
   modal: ModalState;
   isSidebarOpen: boolean;
@@ -66,6 +67,7 @@ type RosterStore = {
   loadMessages: (assignmentId: string) => Promise<void>;
 
   setCurrentMonth: (month: Date) => void;
+  setEmployeeSearchQuery: (query: string) => void;
   setAssignments: (assignments: Assignment[]) => void;
   updateAssignment: (assignment: Assignment) => void;
   undo: () => void;
@@ -102,6 +104,7 @@ const newId = () => Math.random().toString(36).substr(2, 9);
 export const useRosterStore = create<RosterStore>((set, get) => ({
   currentMonth: new Date(2026, 4, 1),
   assignments: [],
+  employeeSearchQuery: '',
   messages: {},
   modal: {
     isOpen: false,
@@ -162,6 +165,8 @@ export const useRosterStore = create<RosterStore>((set, get) => ({
   },
 
   setCurrentMonth: (month) => set({ currentMonth: month }),
+
+  setEmployeeSearchQuery: (employeeSearchQuery) => set({ employeeSearchQuery }),
 
   setAssignments: (assignments) => {
     const state = get();
