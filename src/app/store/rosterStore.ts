@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Assignment } from '../types/assignment';
+import { Assignment, TaskQueue } from '../types/assignment';
 import { Message } from '../types/message';
 import { Employee } from '../types/employee';
 import { db } from '../../lib/db';
@@ -68,6 +68,8 @@ type RosterStore = {
   setCurrentMonth: (month: Date) => void;
   setAssignments: (assignments: Assignment[]) => void;
   updateAssignment: (assignment: Assignment) => void;
+  addAssignmentTask: (employeeId: string, date: string, task: TaskQueue) => void;
+  removeAssignmentTask: (employeeId: string, date: string, task: TaskQueue) => void;
   undo: () => void;
   redo: () => void;
   canUndo: () => boolean;
@@ -139,9 +141,22 @@ export const useRosterStore = create<RosterStore>((set, get) => ({
   loadAssignments: async (year, month) => {
     try {
       const assignments = await db.assignments.getByMonth(year, month);
+      const tasksResult = await db.assignmentTasks.getByMonth(year, month).catch((err) => {
+        console.warn('Assignment task table is not ready:', err);
+        return [];
+      });
+      const taskQueuesByAssignment = new Map<string, TaskQueue[]>();
+      tasksResult.forEach((task) => {
+        const key = `${task.employeeId}:${task.date}`;
+        taskQueuesByAssignment.set(key, [...(taskQueuesByAssignment.get(key) ?? []), task.taskName]);
+      });
+      const assignmentsWithTasks = assignments.map((assignment) => ({
+        ...assignment,
+        taskQueues: taskQueuesByAssignment.get(`${assignment.employeeId}:${assignment.date}`) ?? [],
+      }));
       set({
-        assignments,
-        assignmentHistory: [JSON.parse(JSON.stringify(assignments))],
+        assignments: assignmentsWithTasks,
+        assignmentHistory: [JSON.parse(JSON.stringify(assignmentsWithTasks))],
         historyIndex: 0,
       });
     } catch (err) {
@@ -182,12 +197,43 @@ export const useRosterStore = create<RosterStore>((set, get) => ({
       : [...state.assignments, assignment];
     const newHistory = state.assignmentHistory.slice(0, state.historyIndex + 1);
     newHistory.push(JSON.parse(JSON.stringify(newAssignments)));
-    set({
+    set((currentState) => ({
       assignments: newAssignments,
       assignmentHistory: newHistory.slice(-50),
       historyIndex: Math.min(newHistory.length - 1, 49),
-    });
+      modal: currentState.modal.selectedAssignment?.id === assignment.id
+        ? { ...currentState.modal, selectedAssignment: assignment }
+        : currentState.modal,
+    }));
     db.assignments.upsert(assignment).catch(console.error);
+  },
+
+  addAssignmentTask: (employeeId, date, task) => {
+    set((state) => ({
+      assignments: state.assignments.map((assignment) =>
+        assignment.employeeId === employeeId && assignment.date === date
+          ? { ...assignment, taskQueues: [...(assignment.taskQueues ?? []), task] }
+          : assignment,
+      ),
+      modal: state.modal.selectedAssignment?.employeeId === employeeId && state.modal.selectedAssignment.date === date
+        ? { ...state.modal, selectedAssignment: { ...state.modal.selectedAssignment, taskQueues: [...(state.modal.selectedAssignment.taskQueues ?? []), task] } }
+        : state.modal,
+    }));
+    db.assignmentTasks.insert({ id: crypto.randomUUID(), employeeId, date, taskName: task }).catch(console.error);
+  },
+
+  removeAssignmentTask: (employeeId, date, task) => {
+    set((state) => ({
+      assignments: state.assignments.map((assignment) =>
+        assignment.employeeId === employeeId && assignment.date === date
+          ? { ...assignment, taskQueues: (assignment.taskQueues ?? []).filter((item) => item !== task) }
+          : assignment,
+      ),
+      modal: state.modal.selectedAssignment?.employeeId === employeeId && state.modal.selectedAssignment.date === date
+        ? { ...state.modal, selectedAssignment: { ...state.modal.selectedAssignment, taskQueues: (state.modal.selectedAssignment.taskQueues ?? []).filter((item) => item !== task) } }
+        : state.modal,
+    }));
+    db.assignmentTasks.delete(employeeId, date, task).catch(console.error);
   },
 
   undo: () => {

@@ -1,19 +1,17 @@
 import { useState, useEffect } from 'react';
-import { X, Calendar, MessageSquare, Briefcase, Clock } from 'lucide-react';
+import { X, Calendar, MessageSquare, Clock } from 'lucide-react';
 import { useRosterStore } from '../../store/rosterStore';
 import { useAuthStore } from '../../store/authStore';
-import { useLeaveStore } from '../../store/leaveStore';
 import { WorkdayTab } from './WorkdayTab';
 import { MessagesTab } from './MessagesTab';
 import { LeaveTab } from './LeaveTab';
 import { CalendarTab } from './CalendarTab';
 
-type Tab = 'workday' | 'messages' | 'leave' | 'calendar';
+type Tab = 'workday' | 'messages' | 'calendar';
 
 export function DetailModal() {
   const { modal, closeModal, employees } = useRosterStore();
   const { user } = useAuthStore();
-  const { leaveBalances } = useLeaveStore();
   const [activeTab, setActiveTab] = useState<Tab>('workday');
 
   useEffect(() => {
@@ -48,7 +46,6 @@ export function DetailModal() {
   const tabs = [
     { id: 'workday'  as Tab, label: 'Workday',       icon: Calendar },
     { id: 'messages' as Tab, label: 'Messages',      icon: MessageSquare },
-    { id: 'leave'    as Tab, label: 'Leave Overview', icon: Briefcase },
     { id: 'calendar' as Tab, label: 'Calendar',      icon: Clock },
   ];
 
@@ -104,12 +101,6 @@ export function DetailModal() {
               assignment={modal.selectedAssignment}
               employee={employee}
               currentUser={currentUser}
-            />
-          )}
-          {activeTab === 'leave' && (
-            <LeaveTab
-              employeeId={employee.id}
-              leaveBalance={leaveBalances[employee.id]}
             />
           )}
           {activeTab === 'calendar' && (

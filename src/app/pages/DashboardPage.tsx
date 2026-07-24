@@ -1,328 +1,211 @@
-import { useState } from 'react';
+import { useEffect, useMemo } from 'react';
+import { Activity, CalendarDays, ClipboardCheck, TrendingUp, Users } from 'lucide-react';
 import { useRosterStore } from '../store/rosterStore';
-import { Calendar, UserPlus, UserMinus, UserCog, RefreshCw, ChevronLeft, ChevronRight, TrendingUp, Users, Clock } from 'lucide-react';
-import { format, formatDistanceToNow } from 'date-fns';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { useLeaveStore } from '../store/leaveStore';
+
+const SHIFT_DETAILS = [
+  { id: 'shift1', label: 'Shift 1', color: 'bg-blue-500' },
+  { id: 'shift2', label: 'Shift 2', color: 'bg-orange-500' },
+  { id: 'shift3', label: 'Shift 3', color: 'bg-purple-500' },
+] as const;
+
+const asLocalDate = (value: string) => new Date(`${value}T00:00:00`);
 
 export function DashboardPage() {
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const { getActivityLogsByDate, activityLogs } = useRosterStore();
+  const { currentMonth, assignments, employees, activityLogs, loadAssignments } = useRosterStore();
+  const { leaveRequests } = useLeaveStore();
 
-  const logs = getActivityLogsByDate(selectedDate);
+  useEffect(() => {
+    loadAssignments(currentMonth.getFullYear(), currentMonth.getMonth());
+  }, [currentMonth, loadAssignments]);
 
-  const getActivityIcon = (type: string) => {
-    switch (type) {
-      case 'employee_added':
-        return <UserPlus className="w-5 h-5 text-green-600" />;
-      case 'employee_deleted':
-        return <UserMinus className="w-5 h-5 text-red-600" />;
-      case 'employee_updated':
-        return <UserCog className="w-5 h-5 text-blue-600" />;
-      case 'shift_changed':
-        return <RefreshCw className="w-5 h-5 text-orange-600" />;
-      default:
-        return <Calendar className="w-5 h-5 text-muted-foreground" />;
-    }
-  };
+  const metrics = useMemo(() => {
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
+    const monthStart = new Date(year, month, 1);
+    const monthEnd = new Date(year, month + 1, 0);
+    const monthLogs = activityLogs.filter((log) => {
+      const timestamp = new Date(log.timestamp);
+      return timestamp.getFullYear() === year && timestamp.getMonth() === month;
+    });
 
-  const getActivityColor = (type: string) => {
-    switch (type) {
-      case 'employee_added':
-        return 'bg-green-500/10 border-green-500/20';
-      case 'employee_deleted':
-        return 'bg-red-500/10 border-red-500/20';
-      case 'employee_updated':
-        return 'bg-blue-500/10 border-blue-500/20';
-      case 'shift_changed':
-        return 'bg-orange-500/10 border-orange-500/20';
-      default:
-        return 'bg-muted border-border';
-    }
-  };
+    const workingAssignments = assignments.filter((assignment) =>
+      assignment.status !== 'off' && assignment.status !== 'leave',
+    );
+    const attendanceUnits = workingAssignments.reduce((total, assignment) => {
+      if (assignment.status === 'half-day') return total + 0.5;
+      if (assignment.status === 'absent') return total;
+      return total + 1;
+    }, 0);
+    const attendanceRate = workingAssignments.length
+      ? Math.round((attendanceUnits / workingAssignments.length) * 100)
+      : 0;
+    const taskAssignedEntries = workingAssignments.filter((assignment) =>
+      (assignment.taskQueues?.length ?? 0) > 0,
+    ).length;
+    const productivityRate = workingAssignments.length
+      ? Math.round((taskAssignedEntries / workingAssignments.length) * 100)
+      : 0;
 
-  const handlePreviousDay = () => {
-    const newDate = new Date(selectedDate);
-    newDate.setDate(newDate.getDate() - 1);
-    setSelectedDate(newDate);
-  };
+    const leavesByEmployee = new Map<string, { name: string; days: number; requests: number }>();
+    leaveRequests
+      .filter((request) => request.status === 'approved')
+      .forEach((request) => {
+        const leaveStart = asLocalDate(request.startDate);
+        const leaveEnd = asLocalDate(request.endDate);
+        const overlapStart = leaveStart > monthStart ? leaveStart : monthStart;
+        const overlapEnd = leaveEnd < monthEnd ? leaveEnd : monthEnd;
+        if (overlapStart > overlapEnd) return;
 
-  const handleNextDay = () => {
-    const newDate = new Date(selectedDate);
-    newDate.setDate(newDate.getDate() + 1);
-    setSelectedDate(newDate);
-  };
+        const days = Math.floor((overlapEnd.getTime() - overlapStart.getTime()) / 86_400_000) + 1;
+        const employee = employees.find((item) => item.id === request.employeeId);
+        const existing = leavesByEmployee.get(request.employeeId) ?? {
+          name: employee?.name ?? request.employeeName ?? request.employeeId,
+          days: 0,
+          requests: 0,
+        };
+        leavesByEmployee.set(request.employeeId, {
+          ...existing,
+          days: existing.days + days,
+          requests: existing.requests + 1,
+        });
+      });
 
-  const handleToday = () => {
-    setSelectedDate(new Date());
-  };
+    const shiftCounts = SHIFT_DETAILS.map((shift) => ({
+      ...shift,
+      employees: new Set(
+        assignments
+          .filter((assignment) => assignment.shiftType === shift.id && assignment.status !== 'off')
+          .map((assignment) => assignment.employeeId),
+      ).size,
+    }));
 
-  const isToday = format(selectedDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
-  const isFutureDate = selectedDate > new Date();
+    return {
+      monthLogs,
+      attendanceRate,
+      productivityRate,
+      workingAssignments: workingAssignments.length,
+      taskAssignedEntries,
+      approvedLeaveDays: [...leavesByEmployee.values()].reduce((total, leave) => total + leave.days, 0),
+      leavesByEmployee: [...leavesByEmployee.values()].sort((a, b) => b.days - a.days),
+      shiftCounts,
+      newEmployees: monthLogs.filter((log) => log.type === 'employee_added').length,
+      removedEmployees: monthLogs.filter((log) => log.type === 'employee_deleted').length,
+    };
+  }, [activityLogs, assignments, currentMonth, employees, leaveRequests]);
 
-  const attendanceData = [
-    { id: 'mon', name: 'Mon', present: 12, absent: 3, halfDay: 0 },
-    { id: 'tue', name: 'Tue', present: 13, absent: 2, halfDay: 0 },
-    { id: 'wed', name: 'Wed', present: 11, absent: 2, halfDay: 2 },
-    { id: 'thu', name: 'Thu', present: 14, absent: 1, halfDay: 0 },
-    { id: 'fri', name: 'Fri', present: 12, absent: 1, halfDay: 2 },
-    { id: 'sat', name: 'Sat', present: 10, absent: 3, halfDay: 2 },
-    { id: 'sun', name: 'Sun', present: 8, absent: 5, halfDay: 2 }
-  ];
-
-  const shiftDistribution = [
-    { id: 'shift1', name: 'Shift 1', value: 5 },
-    { id: 'shift2', name: 'Shift 2', value: 5 },
-    { id: 'shift3', name: 'Shift 3', value: 5 }
-  ];
-
-  const COLORS = ['#3b82f6', '#f97316', '#a855f7'];
+  const monthLabel = currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-3xl font-semibold mb-2">Dashboard Overview</h2>
-        <p className="text-muted-foreground">Real-time workforce metrics, activity logs, and system insights</p>
+        <h2 className="text-3xl font-semibold mb-2">{monthLabel} overview</h2>
+        <p className="text-muted-foreground">Metrics below reflect the roster month selected in the top bar.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-card rounded-lg p-6 border">
-          <h3 className="text-sm font-medium text-muted-foreground mb-2">Total Employees</h3>
-          <p className="text-3xl font-bold">{activityLogs.length > 0 ? '156' : '0'}</p>
-        </div>
-
-        <div className="bg-card rounded-lg p-6 border">
-          <h3 className="text-sm font-medium text-muted-foreground mb-2">Active Shifts</h3>
-          <p className="text-3xl font-bold">{activityLogs.length > 0 ? '3,432' : '0'}</p>
-        </div>
-
-        <div className="bg-card rounded-lg p-6 border">
-          <h3 className="text-sm font-medium text-muted-foreground mb-2">Coverage Rate</h3>
-          <p className="text-3xl font-bold">{activityLogs.length > 0 ? '96%' : '0%'}</p>
-        </div>
-
-        <div className="bg-card rounded-lg p-6 border">
-          <h3 className="text-sm font-medium text-muted-foreground mb-2">Leave Requests</h3>
-          <p className="text-3xl font-bold">{activityLogs.length > 0 ? '12' : '0'}</p>
-        </div>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard icon={Users} label="Current workforce" value={employees.length} detail={`${metrics.newEmployees} added · ${metrics.removedEmployees} removed this month`} tone="text-blue-600" />
+        <MetricCard icon={TrendingUp} label="Attendance rate" value={`${metrics.attendanceRate}%`} detail="Present work entries, with half-days counted at 50%" tone="text-green-600" />
+        <MetricCard icon={ClipboardCheck} label="Productivity rate" value={`${metrics.productivityRate}%`} detail={`${metrics.taskAssignedEntries} of ${metrics.workingAssignments} work entries have a task assigned`} tone="text-purple-600" />
+        <MetricCard icon={CalendarDays} label="Approved leave" value={`${metrics.approvedLeaveDays} days`} detail="Days of approved leave that fall within this month" tone="text-orange-600" />
       </div>
 
-      <div className="bg-card border border-border rounded-2xl p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <Calendar className="w-5 h-5 text-primary" />
-            <h3>Activity Logs</h3>
-          </div>
-          {!isToday && (
-            <button
-              onClick={handleToday}
-              className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
-            >
-              Today
-            </button>
-          )}
-        </div>
-
-        <div className="flex items-center gap-4 mb-6">
-          <button
-            onClick={handlePreviousDay}
-            className="p-2 hover:bg-secondary rounded-lg transition-colors"
-          >
-            <ChevronLeft className="w-5 h-5" />
-          </button>
-
-          <div className="flex-1 text-center">
-            <input
-              type="date"
-              value={format(selectedDate, 'yyyy-MM-dd')}
-              onChange={(e) => setSelectedDate(new Date(e.target.value))}
-              className="px-4 py-2 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring text-center"
-            />
-            <p className="text-sm text-muted-foreground mt-2">
-              {format(selectedDate, 'EEEE, MMMM d, yyyy')}
-            </p>
-          </div>
-
-          <button
-            onClick={handleNextDay}
-            disabled={isFutureDate}
-            className={`p-2 rounded-lg transition-colors ${
-              isFutureDate ? 'opacity-50 cursor-not-allowed' : 'hover:bg-secondary'
-            }`}
-          >
-            <ChevronRight className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <div className="bg-background border border-border rounded-lg p-4">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 bg-green-500/10 rounded-lg">
-                <UserPlus className="w-5 h-5 text-green-600" />
-              </div>
-              <h3 className="text-sm font-medium">Employees Added</h3>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <section className="rounded-2xl border border-border bg-card p-6">
+          <div className="mb-5 flex items-center gap-3">
+            <Users className="h-5 w-5 text-primary" />
+            <div>
+              <h3>Workforce by shift</h3>
+              <p className="text-sm text-muted-foreground">Distinct employees scheduled during {monthLabel}</p>
             </div>
-            <p className="text-2xl font-bold">
-              {logs.filter(l => l.type === 'employee_added').length}
-            </p>
           </div>
-
-          <div className="bg-background border border-border rounded-lg p-4">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 bg-blue-500/10 rounded-lg">
-                <UserCog className="w-5 h-5 text-blue-600" />
-              </div>
-              <h3 className="text-sm font-medium">Updates</h3>
-            </div>
-            <p className="text-2xl font-bold">
-              {logs.filter(l => l.type === 'employee_updated').length}
-            </p>
-          </div>
-
-          <div className="bg-background border border-border rounded-lg p-4">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 bg-orange-500/10 rounded-lg">
-                <RefreshCw className="w-5 h-5 text-orange-600" />
-              </div>
-              <h3 className="text-sm font-medium">Shift Changes</h3>
-            </div>
-            <p className="text-2xl font-bold">
-              {logs.filter(l => l.type === 'shift_changed').length}
-            </p>
-          </div>
-        </div>
-
-        {logs.length === 0 ? (
-          <div className="text-center py-12 bg-muted/30 rounded-lg">
-            <Calendar className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-            <p className="text-muted-foreground">No activities recorded for this date</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {logs.map((log) => (
-              <div
-                key={log.id}
-                className={`p-4 border rounded-lg ${getActivityColor(log.type)}`}
-              >
-                <div className="flex items-start gap-4">
-                  <div className="p-2 bg-background rounded-lg">
-                    {getActivityIcon(log.type)}
+          <div className="space-y-4">
+            {metrics.shiftCounts.map((shift) => {
+              const total = metrics.shiftCounts.reduce((sum, item) => sum + item.employees, 0);
+              const percentage = total ? Math.round((shift.employees / total) * 100) : 0;
+              return (
+                <div key={shift.id}>
+                  <div className="mb-2 flex items-center justify-between text-sm">
+                    <span className="flex items-center gap-2 font-medium"><span className={`h-2.5 w-2.5 rounded-full ${shift.color}`} />{shift.label}</span>
+                    <span className="text-muted-foreground">{shift.employees} people · {percentage}%</span>
                   </div>
-                  <div className="flex-1">
-                    <div className="flex items-start justify-between mb-1">
-                      <p className="font-medium">{log.description}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {formatDistanceToNow(log.timestamp, { addSuffix: true })}
-                      </p>
-                    </div>
-                    {log.details && (
-                      <p className="text-sm text-muted-foreground">{log.details}</p>
-                    )}
-                    <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
-                      <span>By: {log.userName}</span>
-                      <span>•</span>
-                      <span>{format(log.timestamp, 'h:mm a')}</span>
-                    </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-muted">
+                    <div className={`h-full rounded-full ${shift.color}`} style={{ width: `${percentage}%` }} />
                   </div>
                 </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-border bg-card p-6">
+          <div className="mb-5 flex items-center gap-3">
+            <CalendarDays className="h-5 w-5 text-primary" />
+            <div>
+              <h3>Leave taken in {monthLabel}</h3>
+              <p className="text-sm text-muted-foreground">Approved leave only</p>
+            </div>
+          </div>
+          {metrics.leavesByEmployee.length === 0 ? (
+            <p className="rounded-lg bg-muted/40 p-4 text-sm text-muted-foreground">No approved leave recorded for this month.</p>
+          ) : (
+            <div className="space-y-3">
+              {metrics.leavesByEmployee.map((leave) => (
+                <div key={leave.name} className="flex items-center justify-between rounded-lg bg-muted/40 p-3">
+                  <span className="font-medium">{leave.name}</span>
+                  <span className="text-sm text-muted-foreground">{leave.days} day{leave.days === 1 ? '' : 's'} · {leave.requests} request{leave.requests === 1 ? '' : 's'}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+
+      <section className="rounded-2xl border border-border bg-card p-6">
+        <div className="mb-5 flex items-center gap-3">
+          <Activity className="h-5 w-5 text-primary" />
+          <div>
+            <h3>Monthly activity</h3>
+            <p className="text-sm text-muted-foreground">Employee and shift changes recorded in {monthLabel}</p>
+          </div>
+        </div>
+        {metrics.monthLogs.length === 0 ? (
+          <p className="rounded-lg bg-muted/40 p-4 text-sm text-muted-foreground">No activity recorded for this month.</p>
+        ) : (
+          <div className="space-y-3">
+            {metrics.monthLogs.map((log) => (
+              <div key={log.id} className="rounded-lg border border-border p-4">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <p className="font-medium">{log.description}</p>
+                  <time className="text-sm text-muted-foreground">{new Date(log.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</time>
+                </div>
+                {log.details && <p className="mt-1 text-sm text-muted-foreground">{log.details}</p>}
               </div>
             ))}
           </div>
         )}
+      </section>
+    </div>
+  );
+}
+
+type MetricCardProps = {
+  icon: typeof Users;
+  label: string;
+  value: string | number;
+  detail: string;
+  tone: string;
+};
+
+function MetricCard({ icon: Icon, label, value, detail, tone }: MetricCardProps) {
+  return (
+    <div className="rounded-2xl border border-border bg-card p-6">
+      <div className="mb-3 flex items-center gap-3">
+        <Icon className={`h-5 w-5 ${tone}`} />
+        <h3 className="text-sm font-medium text-muted-foreground">{label}</h3>
       </div>
-
-      <div className="bg-card border border-border rounded-2xl p-6">
-        <h3 className="mb-4">Overall Statistics</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-          <div className="flex justify-between p-3 bg-muted/50 rounded-lg">
-            <span className="text-muted-foreground">Total Activities</span>
-            <span className="font-medium">{activityLogs.length}</span>
-          </div>
-          <div className="flex justify-between p-3 bg-muted/50 rounded-lg">
-            <span className="text-muted-foreground">Today's Activities</span>
-            <span className="font-medium">
-              {getActivityLogsByDate(new Date()).length}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="border-t border-border pt-8">
-        <div className="mb-6">
-          <h2 className="text-2xl font-semibold mb-2">Analytics & Reports</h2>
-          <p className="text-muted-foreground">Workforce insights and performance metrics</p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <div className="bg-card border border-border rounded-2xl p-6">
-            <div className="flex items-center gap-3 mb-2">
-              <TrendingUp className="w-6 h-6 text-green-600" />
-              <h3 className="text-sm text-muted-foreground">Attendance Rate</h3>
-            </div>
-            <p className="text-3xl font-bold">{activityLogs.length > 0 ? '87%' : '0%'}</p>
-            <p className="text-xs text-green-600 mt-2">{activityLogs.length > 0 ? '+5% from last month' : 'No data yet'}</p>
-          </div>
-
-          <div className="bg-card border border-border rounded-2xl p-6">
-            <div className="flex items-center gap-3 mb-2">
-              <Users className="w-6 h-6 text-blue-600" />
-              <h3 className="text-sm text-muted-foreground">Active Employees</h3>
-            </div>
-            <p className="text-3xl font-bold">{activityLogs.length > 0 ? '15' : '0'}</p>
-            <p className="text-xs text-muted-foreground mt-2">Active workforce</p>
-          </div>
-
-          <div className="bg-card border border-border rounded-2xl p-6">
-            <div className="flex items-center gap-3 mb-2">
-              <Clock className="w-6 h-6 text-purple-600" />
-              <h3 className="text-sm text-muted-foreground">Avg Hours/Week</h3>
-            </div>
-            <p className="text-3xl font-bold">{activityLogs.length > 0 ? '42' : '0'}</p>
-            <p className="text-xs text-muted-foreground mt-2">Per employee</p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-          <div className="bg-card border border-border rounded-2xl p-6">
-            <h3 className="mb-4">Weekly Attendance Overview</h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={attendanceData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="name" stroke="#6b7280" />
-                <YAxis stroke="#6b7280" />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="present" fill="#22c55e" name="Present" />
-                <Bar dataKey="halfDay" fill="#eab308" name="Half Day" />
-                <Bar dataKey="absent" fill="#ef4444" name="Absent" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="bg-card border border-border rounded-2xl p-6">
-            <h3 className="mb-4">Shift Distribution</h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={shiftDistribution}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ name, value }) => `${name}: ${value}`}
-                  outerRadius={100}
-                  fill="#8884d8"
-                  dataKey="value"
-                >
-                  {shiftDistribution.map((entry, index) => (
-                    <Cell key={entry.id} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </div>
+      <p className="text-3xl font-semibold">{value}</p>
+      <p className="mt-2 text-xs text-muted-foreground">{detail}</p>
     </div>
   );
 }

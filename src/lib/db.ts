@@ -1,6 +1,6 @@
 import { supabase } from './supabase';
 import type { Employee } from '../app/types/employee';
-import type { Assignment } from '../app/types/assignment';
+import type { Assignment, TaskQueue } from '../app/types/assignment';
 import type { Message } from '../app/types/message';
 import type { LeaveBalance } from '../app/types/leave';
 
@@ -15,7 +15,15 @@ const T = {
   shiftChanges:  'shift_changes',
   shiftSwaps:    'shift_swaps',
   leaveBalances: 'shift_leave_balances',
+  assignmentTasks: 'shift_assignment_tasks',
 } as const;
+
+export type DbAssignmentTask = {
+  id: string;
+  employeeId: string;
+  date: string;
+  taskName: TaskQueue;
+};
 
 export type DbLeaveRequest = {
   id: string;
@@ -147,6 +155,47 @@ export const db = {
         message_count: assignment.messageCount ?? 0,
         notes: assignment.notes ?? null,
       }, { onConflict: 'employee_id,date' });
+      if (error) throw error;
+    },
+  },
+
+  assignmentTasks: {
+    getByMonth: async (year: number, month: number): Promise<DbAssignmentTask[]> => {
+      const mm = String(month + 1).padStart(2, '0');
+      const lastDay = new Date(year, month + 1, 0).getDate();
+      const start = `${year}-${mm}-01`;
+      const end = `${year}-${mm}-${String(lastDay).padStart(2, '0')}`;
+      const { data, error } = await supabase
+        .from(T.assignmentTasks)
+        .select('*')
+        .gte('date', start)
+        .lte('date', end);
+      if (error) throw error;
+      return (data ?? []).map(row => ({
+        id: row.id,
+        employeeId: row.employee_id,
+        date: row.date,
+        taskName: row.task_name as TaskQueue,
+      }));
+    },
+
+    insert: async (task: DbAssignmentTask): Promise<void> => {
+      const { error } = await supabase.from(T.assignmentTasks).upsert({
+        id: task.id,
+        employee_id: task.employeeId,
+        date: task.date,
+        task_name: task.taskName,
+      }, { onConflict: 'employee_id,date,task_name' });
+      if (error) throw error;
+    },
+
+    delete: async (employeeId: string, date: string, taskName: TaskQueue): Promise<void> => {
+      const { error } = await supabase
+        .from(T.assignmentTasks)
+        .delete()
+        .eq('employee_id', employeeId)
+        .eq('date', date)
+        .eq('task_name', taskName);
       if (error) throw error;
     },
   },

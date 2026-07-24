@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Clock, Coffee, Users as UsersIcon, CheckSquare, ArrowRightLeft } from 'lucide-react';
-import { Assignment } from '../../types/assignment';
+import { Clock, Coffee, CheckSquare, ArrowRightLeft, Plus, X, Pencil, Check } from 'lucide-react';
+import { Assignment, TASK_QUEUES, TaskQueue } from '../../types/assignment';
 import { Employee } from '../../types/employee';
 import { SHIFTS } from '../../types/shift';
+import { useRosterStore } from '../../store/rosterStore';
 import { SwapDialog } from './SwapDialog';
 
 type WorkdayTabProps = {
@@ -11,8 +12,26 @@ type WorkdayTabProps = {
   date: string | null;
 };
 
+type BreakTime = {
+  name: string;
+  start: string;
+  end: string;
+};
+
+const DEFAULT_BREAKS: BreakTime[] = [
+  { name: 'Break 1', start: '10:30', end: '10:45' },
+  { name: 'Lunch Break', start: '13:00', end: '13:30' },
+  { name: 'Break 2', start: '16:00', end: '16:15' },
+];
+
 export function WorkdayTab({ assignment, employee, date }: WorkdayTabProps) {
   const [isSwapDialogOpen, setIsSwapDialogOpen] = useState(false);
+  const [isTaskMenuOpen, setIsTaskMenuOpen] = useState(false);
+  const [isEditingBreaks, setIsEditingBreaks] = useState(false);
+  const [breaks, setBreaks] = useState<BreakTime[]>(DEFAULT_BREAKS);
+  const [draftBreaks, setDraftBreaks] = useState<BreakTime[]>(DEFAULT_BREAKS);
+  const addAssignmentTask = useRosterStore((state) => state.addAssignmentTask);
+  const removeAssignmentTask = useRosterStore((state) => state.removeAssignmentTask);
 
   if (!assignment || assignment.status === 'off' || assignment.status === 'absent') {
     return (
@@ -23,29 +42,33 @@ export function WorkdayTab({ assignment, employee, date }: WorkdayTabProps) {
   }
 
   const shift = assignment.shiftType ? SHIFTS[assignment.shiftType] : null;
+  const assignedQueues = assignment.taskQueues ?? [];
 
-  // Randomize meeting types
-  const meetingTypes = ['Calibration call', 'Misses call', 'Status call'];
-  const getMeetingType = (index: number) => {
-    const hash = (employee.id + index).split('').reduce((a, b) => a + b.charCodeAt(0), 0);
-    return meetingTypes[hash % meetingTypes.length];
+  const addQueue = (queue: TaskQueue) => {
+    if (assignedQueues.includes(queue)) return;
+    addAssignmentTask(assignment.employeeId, assignment.date, queue);
+    setIsTaskMenuOpen(false);
   };
 
-  const mockMeetings = [
-    { time: '10:00', title: getMeetingType(0), duration: '15 min' },
-    { time: '14:30', title: getMeetingType(1), duration: '30 min' }
-  ];
+  const removeQueue = (queue: TaskQueue) => {
+    removeAssignmentTask(assignment.employeeId, assignment.date, queue);
+  };
 
-  // Determine tasks based on employee
-  const hash = employee.id.split('').reduce((a, b) => a + b.charCodeAt(0), 0);
-  const hasMissesCall = hash % 3 === 0; // ~33% of employees
-  const hasLSCleanup = hash % 7 === 0; // ~14% of employees
+  const updateBreakTime = (index: number, field: 'start' | 'end', value: string) => {
+    setDraftBreaks((currentBreaks) => currentBreaks.map((breakTime, breakIndex) =>
+      breakIndex === index ? { ...breakTime, [field]: value } : breakTime,
+    ));
+  };
 
-  const mockTasks = [
-    { title: 'Order review', priority: 'high' as const, forEveryone: true },
-    ...(hasMissesCall ? [{ title: 'Misses call', priority: 'medium' as const, forEveryone: false }] : []),
-    ...(hasLSCleanup ? [{ title: 'LS cleanup', priority: 'low' as const, forEveryone: false }] : [])
-  ];
+  const saveBreaks = () => {
+    setBreaks(draftBreaks);
+    setIsEditingBreaks(false);
+  };
+
+  const cancelBreakEditing = () => {
+    setDraftBreaks(breaks);
+    setIsEditingBreaks(false);
+  };
 
   return (
     <div className="space-y-6">
@@ -77,65 +100,121 @@ export function WorkdayTab({ assignment, employee, date }: WorkdayTabProps) {
       </div>
 
       <div className="bg-muted/50 rounded-xl p-4">
-        <h3 className="mb-3 flex items-center gap-2">
-          <Coffee className="w-5 h-5" />
-          Breaks
-        </h3>
-        <div className="space-y-2">
-          <div className="flex justify-between items-center p-3 bg-background rounded-lg">
-            <span>Break 1</span>
-            <span className="text-muted-foreground">15 minutes</span>
-          </div>
-          <div className="flex justify-between items-center p-3 bg-background rounded-lg">
-            <span>Lunch Break</span>
-            <span className="text-muted-foreground">30 minutes</span>
-          </div>
-          <div className="flex justify-between items-center p-3 bg-background rounded-lg">
-            <span>Break 2</span>
-            <span className="text-muted-foreground">15 minutes</span>
-          </div>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h3 className="flex items-center gap-2">
+            <Coffee className="w-5 h-5" />
+            Breaks
+          </h3>
+          {isEditingBreaks ? (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={saveBreaks}
+                className="rounded-md p-2 text-primary hover:bg-primary/10"
+                aria-label="Save break times"
+              >
+                <Check className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={cancelBreakEditing}
+                className="rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                aria-label="Cancel editing break times"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setDraftBreaks(breaks);
+                setIsEditingBreaks(true);
+              }}
+              className="rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground"
+              aria-label="Edit break times"
+            >
+              <Pencil className="w-4 h-4" />
+            </button>
+          )}
         </div>
-      </div>
-
-      <div className="bg-muted/50 rounded-xl p-4">
-        <h3 className="mb-3 flex items-center gap-2">
-          <UsersIcon className="w-5 h-5" />
-          Meetings
-        </h3>
         <div className="space-y-2">
-          {mockMeetings.map((meeting, index) => (
-            <div key={index} className="flex justify-between items-center p-3 bg-background rounded-lg">
-              <div>
-                <p className="font-medium">{meeting.title}</p>
-                <p className="text-sm text-muted-foreground">{meeting.duration}</p>
-              </div>
-              <span className="text-muted-foreground">{meeting.time}</span>
+          {(isEditingBreaks ? draftBreaks : breaks).map((breakTime, index) => (
+            <div key={breakTime.name} className="flex items-center justify-between gap-3 rounded-lg bg-background p-3">
+              <span className="font-medium">{breakTime.name}</span>
+              {isEditingBreaks ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="time"
+                    value={breakTime.start}
+                    onChange={(event) => updateBreakTime(index, 'start', event.target.value)}
+                    className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+                    aria-label={`${breakTime.name} start time`}
+                  />
+                  <span className="text-muted-foreground">to</span>
+                  <input
+                    type="time"
+                    value={breakTime.end}
+                    onChange={(event) => updateBreakTime(index, 'end', event.target.value)}
+                    className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+                    aria-label={`${breakTime.name} end time`}
+                  />
+                </div>
+              ) : (
+                <span className="text-muted-foreground">{breakTime.start} – {breakTime.end}</span>
+              )}
             </div>
           ))}
         </div>
       </div>
 
       <div className="bg-muted/50 rounded-xl p-4">
-        <h3 className="mb-3 flex items-center gap-2">
-          <CheckSquare className="w-5 h-5" />
-          Tasks
-        </h3>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h3 className="flex items-center gap-2">
+            <CheckSquare className="w-5 h-5" />
+            Tasks
+          </h3>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setIsTaskMenuOpen((isOpen) => !isOpen)}
+              className="flex h-9 min-w-10 items-center justify-center gap-1 rounded-md border border-primary bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+              aria-expanded={isTaskMenuOpen}
+            >
+              <Plus className="w-4 h-4" />
+              Add task
+            </button>
+            {isTaskMenuOpen && (
+              <div className="absolute right-0 z-10 mt-2 w-44 rounded-lg border border-border bg-card p-1 shadow-lg">
+                {TASK_QUEUES.map((queue) => (
+                  <button
+                    key={queue}
+                    type="button"
+                    onClick={() => addQueue(queue)}
+                    disabled={assignedQueues.includes(queue)}
+                    className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {queue}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
         <div className="space-y-2">
-          {mockTasks.map((task, index) => (
-            <div key={index} className="flex items-center gap-3 p-3 bg-background rounded-lg">
-              <input type="checkbox" className="w-4 h-4 rounded border-border" />
-              <span className="flex-1">{task.title}</span>
-              <span
-                className={`px-2 py-1 rounded text-xs ${
-                  task.priority === 'high'
-                    ? 'bg-red-500/10 text-red-600'
-                    : task.priority === 'medium'
-                    ? 'bg-yellow-500/10 text-yellow-600'
-                    : 'bg-blue-500/10 text-blue-600'
-                }`}
+          {assignedQueues.length === 0 ? (
+            <p className="rounded-lg bg-background p-3 text-sm text-muted-foreground">No tasks assigned for this day.</p>
+          ) : assignedQueues.map((queue) => (
+            <div key={queue} className="flex items-center justify-between gap-3 rounded-lg bg-background p-3">
+              <span className="font-medium">{queue}</span>
+              <button
+                type="button"
+                onClick={() => removeQueue(queue)}
+                className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                aria-label={`Remove ${queue}`}
               >
-                {task.priority}
-              </span>
+                <X className="w-4 h-4" />
+              </button>
             </div>
           ))}
         </div>

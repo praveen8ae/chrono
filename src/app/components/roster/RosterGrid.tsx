@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useRosterStore } from '../../store/rosterStore';
 import { useAuthStore } from '../../store/authStore';
 import { RosterCell } from './RosterCell';
-import { SwapConnections } from './SwapConnections';
 import { AddEmployeeDialog } from '../shift/AddEmployeeDialog';
 import { SHIFTS } from '../../types/shift';
 import { Sun, Sunset, Moon, Pencil, Plus, Minus, Undo2, Redo2 } from 'lucide-react';
@@ -145,7 +144,6 @@ export function RosterGrid() {
         </div>
       )}
 
-      <SwapConnections />
       {shiftGroups.map((group) => {
         const Icon = group.icon;
         return (
