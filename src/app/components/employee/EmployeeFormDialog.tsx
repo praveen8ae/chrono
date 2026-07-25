@@ -170,7 +170,7 @@ export function EmployeeFormDialog({ isOpen, onClose, employee }: EmployeeFormDi
                 <option value="">Idle (No Shift)</option>
                 <option value="shift1">Shift 1 (6:30 AM - 3:30 PM)</option>
                 <option value="shift2">Shift 2 (3:30 PM - 12:30 AM)</option>
-                <option value="shift3">Shift 3 (12:30 AM - 6:30 AM)</option>
+                <option value="shift3">Shift 3 (9:30 PM - 6:30 AM)</option>
               </select>
             </div>
           </div>

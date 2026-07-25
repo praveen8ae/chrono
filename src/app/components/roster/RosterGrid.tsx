@@ -104,7 +104,7 @@ export function RosterGrid() {
     {
       shift: 'shift3',
       name: SHIFTS.shift3.name,
-      timing: '12:30 AM - 6:30 AM IST',
+      timing: '9:30 PM - 6:30 AM IST',
       icon: Moon,
       employees: shift3Employees,
       bgColor: 'bg-purple-500/10',
